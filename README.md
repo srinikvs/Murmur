@@ -1,34 +1,28 @@
 # Murmur
 
-Reynolds boids murmuration: separation, alignment, cohesion, plus cursor scatter.
+Reynolds cursors, Koya fish, and Diwali rockets. One mode at a time.
 
-Open `index.html` in a browser. No build step, no dependencies.
+Open `index.html` in a browser. No build step for the page.
 
-## Controls
+## Modes
 
-| Input | Action |
+| Mode | Behavior |
 | --- | --- |
-| Sliders | Separation, alignment, cohesion, avoid, flock size, speed |
-| Scatter | Burst the flock away from the last pointer position |
-| Pause | Freeze motion (Space) |
-| Reset | Respawn the flock (R) |
-| Pointer | Hold or move near birds to push them away |
-| S | Trigger scatter |
+| Cursors | Current flock. Separation, alignment, cohesion. Pointer scatters them. |
+| Koya fish | At most 20. Cozy toward a moving pointer. Disperse after the pointer is still for 2 seconds. |
+| Diwali rockets | At most 20. Burst with a colored glow at a screen edge, or when the pointer touches one. |
 
-Settings persist in `localStorage` under `murmur.params`.
+Checking one mode turns the others off. Settings persist in `localStorage` under `murmur.params`.
 
-## Git
+Playadda keeps its hamburger and game cards. The same modes belong in that drawer; this repo is the standalone page and the `murmur-ci` test source. See [TESTING.md](TESTING.md).
+
+## murmur-ci
 
 ```bash
-cd murmur
-git init
-git add .
-git commit -m "Initial commit: Murmur flocking simulation"
+npm install
+npx playwright install --with-deps chromium
+npm test
+npm run test:e2e
 ```
 
-## Specs
-
-- 120V-free. Canvas 2D, requestAnimationFrame, variable dt cap
-- Toroidal wrap
-- Uniform-grid neighbor queries
-- Heading-tinted triangles + motion trails
+Do not deploy from CI.

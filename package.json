@@ -1,0 +1,13 @@
+{
+  "name": "murmur",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/modes.test.js",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}
