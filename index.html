@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Murmur</title>
-  <meta name="description" content="A Reynolds boids murmuration with live sliders and cursor scatter." />
+  <meta name="description" content="Murmur modes: cursor flock, Koya fish, Diwali rockets." />
   <link rel="icon" href="public/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -16,26 +16,33 @@
   <div class="hud">
     <div class="brand">
       <h1>Murmur</h1>
-      <p>separation · alignment · cohesion · scatter</p>
+      <p>cursors · koya fish · diwali rockets</p>
     </div>
-    <aside class="panel">
+    <aside class="panel" data-ui data-testid="murmur-drawer">
       <div class="panel-head">
         <strong>Rules</strong>
-        <button type="button" id="scatter">Scatter</button>
+        <button type="button" id="scatter" data-testid="scatter" data-ui>Scatter</button>
       </div>
-      <label class="row">Sep <input id="sep" type="range" min="0" max="3" step="0.05" /><span class="val" id="sep-val"></span></label>
-      <label class="row">Align <input id="ali" type="range" min="0" max="3" step="0.05" /><span class="val" id="ali-val"></span></label>
-      <label class="row">Cohere <input id="coh" type="range" min="0" max="3" step="0.05" /><span class="val" id="coh-val"></span></label>
-      <label class="row">Avoid <input id="avo" type="range" min="0" max="4" step="0.05" /><span class="val" id="avo-val"></span></label>
-      <label class="row">Speed <input id="spd" type="range" min="40" max="280" step="1" /><span class="val" id="spd-val"></span></label>
-      <label class="row">Flock <input id="pop" type="range" min="20" max="400" step="1" /><span class="val" id="pop-val"></span></label>
+      <fieldset class="modes" data-ui>
+        <legend>Mode</legend>
+        <label><input id="mode-cursors" data-testid="mode-cursors" data-mode="cursors" type="checkbox" checked /> Cursors</label>
+        <label><input id="mode-koya" data-testid="mode-koya" data-mode="koya" type="checkbox" /> Koya fish</label>
+        <label><input id="mode-diwali" data-testid="mode-diwali" data-mode="diwali" type="checkbox" /> Diwali rockets</label>
+      </fieldset>
+      <label class="row">Sep <input id="sep" data-ui type="range" min="0" max="3" step="0.05" /><span class="val" id="sep-val"></span></label>
+      <label class="row">Align <input id="ali" data-ui type="range" min="0" max="3" step="0.05" /><span class="val" id="ali-val"></span></label>
+      <label class="row">Cohere <input id="coh" data-ui type="range" min="0" max="3" step="0.05" /><span class="val" id="coh-val"></span></label>
+      <label class="row">Avoid <input id="avo" data-ui type="range" min="0" max="4" step="0.05" /><span class="val" id="avo-val"></span></label>
+      <label class="row">Speed <input id="spd" data-ui type="range" min="40" max="280" step="1" /><span class="val" id="spd-val"></span></label>
+      <label class="row">Flock <input id="pop" data-ui type="range" min="20" max="400" step="1" /><span class="val" id="pop-val"></span></label>
       <div class="actions">
-        <button type="button" id="pause">Pause</button>
-        <button type="button" id="reset">Reset</button>
+        <button type="button" id="pause" data-testid="pause" data-ui>Pause</button>
+        <button type="button" id="reset" data-testid="reset" data-ui>Reset</button>
       </div>
-      <p class="hint">Space pause · R reset · S scatter · pointer avoids</p>
+      <p class="hint" id="mode-hint"></p>
+      <p class="hint">One mode at a time. Space pause · R reset · S scatter</p>
     </aside>
   </div>
-  <script src="src/flock.js"></script>
+  <script type="module" src="src/flock.js"></script>
 </body>
 </html>

@@ -1,14 +1,16 @@
+import { createSim, MODES } from "./engine.js";
+
+const KEY = "murmur.params";
 const DEFAULTS = {
   count: 180,
   speed: 140,
   separation: 1.35,
-  alignment: 1.0,
+  alignment: 1,
   cohesion: 0.85,
   avoid: 2.4,
   trail: 0.18,
+  mode: "cursors",
 };
-
-const KEY = "murmur.params";
 
 function loadParams() {
   try {
@@ -21,308 +23,215 @@ function loadParams() {
 }
 
 function saveParams(p) {
-  localStorage.setItem(KEY, JSON.stringify(p));
+  try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* ignore */ }
 }
 
-function rand(a, b) {
-  return a + Math.random() * (b - a);
+function isUiTarget(target) {
+  return target instanceof Element && Boolean(target.closest("button, input, a, label, select, textarea, [data-ui]"));
 }
 
-function wrapDelta(d, size) {
-  if (d > size * 0.5) return d - size;
-  if (d < -size * 0.5) return d + size;
-  return d;
+function drawCursor(ctx, b) {
+  const ang = Math.atan2(b.vy, b.vx);
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate(ang);
+  ctx.beginPath();
+  ctx.moveTo(7.5, 0);
+  ctx.lineTo(-5.5, 3.4);
+  ctx.lineTo(-3.2, 0);
+  ctx.lineTo(-5.5, -3.4);
+  ctx.closePath();
+  ctx.fillStyle = "#9fd8d0";
+  ctx.fill();
+  ctx.restore();
 }
 
-class SpatialHash {
-  constructor(cell) {
-    this.cell = cell;
-    this.map = new Map();
-  }
-  key(x, y) {
-    return `${x},${y}`;
-  }
-  clear() {
-    this.map.clear();
-  }
-  insert(boid) {
-    const cx = Math.floor(boid.x / this.cell);
-    const cy = Math.floor(boid.y / this.cell);
-    const k = this.key(cx, cy);
-    let bin = this.map.get(k);
-    if (!bin) {
-      bin = [];
-      this.map.set(k, bin);
-    }
-    bin.push(boid);
-  }
-  query(x, y, range, w, h, out) {
-    out.length = 0;
-    const c = this.cell;
-    const x0 = Math.floor((x - range) / c);
-    const x1 = Math.floor((x + range) / c);
-    const y0 = Math.floor((y - range) / c);
-    const y1 = Math.floor((y + range) / c);
-    const maxX = Math.ceil(w / c);
-    const maxY = Math.ceil(h / c);
-    for (let ix = x0; ix <= x1; ix++) {
-      for (let iy = y0; iy <= y1; iy++) {
-        const bin = this.map.get(this.key(((ix % maxX) + maxX) % maxX, ((iy % maxY) + maxY) % maxY));
-        if (bin) for (const b of bin) out.push(b);
-      }
-    }
-    return out;
+function drawFish(ctx, fish) {
+  const ang = Math.atan2(fish.vy, fish.vx);
+  ctx.save();
+  ctx.translate(fish.x, fish.y);
+  ctx.rotate(ang);
+  ctx.fillStyle = `hsl(${fish.hue}, 62%, 62%)`;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 9, 4.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-7, 0);
+  ctx.lineTo(-13, 4);
+  ctx.lineTo(-13, -4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#102026";
+  ctx.beginPath();
+  ctx.arc(4, -1, 1.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawRocket(ctx, rocket) {
+  const ang = Math.atan2(rocket.vy, rocket.vx);
+  ctx.save();
+  ctx.translate(rocket.x, rocket.y);
+  ctx.rotate(ang);
+  ctx.fillStyle = `hsl(${rocket.hue}, 85%, 58%)`;
+  ctx.fillRect(-6, -2, 12, 4);
+  ctx.beginPath();
+  ctx.moveTo(6, -2);
+  ctx.lineTo(11, 0);
+  ctx.lineTo(6, 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255, 196, 92, .85)";
+  ctx.beginPath();
+  ctx.moveTo(-6, 0);
+  ctx.lineTo(-12, 2.4);
+  ctx.lineTo(-12, -2.4);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawSparks(ctx, sparks) {
+  for (const s of sparks) {
+    ctx.beginPath();
+    ctx.fillStyle = `hsla(${s.hue}, 90%, 62%, ${Math.max(0, s.life)})`;
+    ctx.arc(s.x, s.y, 2.4 + s.life * 3, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
-class Flock {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext("2d");
-    this.params = loadParams();
-    this.boids = [];
-    this.hash = new SpatialHash(48);
-    this.neighbors = [];
-    this.pointer = { x: 0, y: 0, on: false, panic: 0 };
-    this.paused = false;
-    this.last = performance.now();
-    this.resize();
-    this.respawn();
-  }
+export function bootMurmur(canvas) {
+  const params = loadParams();
+  const sim = createSim({
+    width: window.innerWidth,
+    height: window.innerHeight,
+    mode: params.mode,
+    count: params.count,
+    speed: params.speed,
+    separation: params.separation,
+    alignment: params.alignment,
+    cohesion: params.cohesion,
+    avoid: params.avoid,
+  });
+  const ctx = canvas.getContext("2d");
+  let paused = false;
+  let last = performance.now();
 
-  resize() {
+  function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.w = window.innerWidth;
-    this.h = window.innerHeight;
-    this.canvas.width = Math.floor(this.w * dpr);
-    this.canvas.height = Math.floor(this.h * dpr);
-    this.canvas.style.width = `${this.w}px`;
-    this.canvas.style.height = `${this.h}px`;
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    sim.resize(window.innerWidth, window.innerHeight);
+    canvas.width = Math.floor(sim.w * dpr);
+    canvas.height = Math.floor(sim.h * dpr);
+    canvas.style.width = `${sim.w}px`;
+    canvas.style.height = `${sim.h}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  respawn() {
-    const n = Math.max(20, Math.min(500, Math.round(this.params.count)));
-    this.boids = Array.from({ length: n }, () => {
-      const a = rand(0, Math.PI * 2);
-      const s = this.params.speed * rand(0.7, 1.1);
-      return {
-        x: rand(0, this.w),
-        y: rand(0, this.h),
-        vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s,
-      };
+  function syncModeUi() {
+    for (const mode of MODES) {
+      const el = document.getElementById(`mode-${mode}`);
+      if (el) el.checked = sim.mode === mode;
+    }
+    document.body.dataset.mode = sim.mode;
+    const hint = document.getElementById("mode-hint");
+    if (hint) {
+      hint.textContent = sim.mode === "koya"
+        ? "Koya cozy into a moving pointer, then disperse after 2s still. Max 20."
+        : sim.mode === "diwali"
+          ? "Rockets burst at an edge or on pointer contact. Max 20."
+          : "Cursors avoid the pointer.";
+    }
+  }
+
+  function bindSlider(id, key) {
+    const el = document.getElementById(id);
+    const out = document.getElementById(`${id}-val`);
+    if (!el || !out) return;
+    el.value = params[key];
+    out.textContent = key === "count" || key === "speed" ? String(Math.round(params[key])) : Number(params[key]).toFixed(2);
+    el.addEventListener("input", () => {
+      const v = Number(el.value);
+      params[key] = v;
+      sim[key] = v;
+      out.textContent = key === "count" || key === "speed" ? String(Math.round(v)) : v.toFixed(2);
+      if (key === "count") sim.setCount(v);
+      saveParams(params);
     });
   }
 
-  setCount(n) {
-    this.params.count = n;
-    const target = Math.max(20, Math.min(500, Math.round(n)));
-    while (this.boids.length < target) {
-      const donor = this.boids[this.boids.length - 1] || { x: this.w / 2, y: this.h / 2, vx: 20, vy: 0 };
-      this.boids.push({
-        x: donor.x + rand(-12, 12),
-        y: donor.y + rand(-12, 12),
-        vx: donor.vx + rand(-8, 8),
-        vy: donor.vy + rand(-8, 8),
-      });
+  bindSlider("sep", "separation");
+  bindSlider("ali", "alignment");
+  bindSlider("coh", "cohesion");
+  bindSlider("avo", "avoid");
+  bindSlider("spd", "speed");
+  bindSlider("pop", "count");
+
+  document.querySelectorAll("[data-mode]").forEach((el) => {
+    el.addEventListener("change", () => {
+      const mode = el.getAttribute("data-mode");
+      if (!el.checked) {
+        el.checked = true;
+        return;
+      }
+      params.mode = sim.setMode(mode);
+      saveParams(params);
+      syncModeUi();
+    });
+  });
+
+  const pause = document.getElementById("pause");
+  if (pause) pause.addEventListener("click", () => {
+    paused = !paused;
+    pause.textContent = paused ? "Resume" : "Pause";
+  });
+  document.getElementById("reset")?.addEventListener("click", () => sim.setMode(sim.mode) || sim.setCount(params.count));
+  document.getElementById("scatter")?.addEventListener("click", () => sim.scatter());
+
+  window.addEventListener("resize", resize);
+  window.addEventListener("pointermove", (e) => {
+    sim.setPointer(e.clientX, e.clientY, sim.time, true);
+  });
+  window.addEventListener("pointerdown", (e) => {
+    if (isUiTarget(e.target)) return;
+    sim.pointerDown(e.clientX, e.clientY, sim.time);
+  });
+  window.addEventListener("pointerleave", () => { sim.pointer.on = false; });
+  window.addEventListener("keydown", (e) => {
+    if (isUiTarget(e.target)) return;
+    if (e.code === "Space") {
+      e.preventDefault();
+      paused = !paused;
+      if (pause) pause.textContent = paused ? "Resume" : "Pause";
     }
-    if (this.boids.length > target) this.boids.length = target;
-    saveParams(this.params);
-  }
+    if (e.key === "r" || e.key === "R") sim.setCount(params.count);
+    if (e.key === "s" || e.key === "S") sim.scatter();
+  });
 
-  scatter() {
-    this.pointer.panic = 0.7;
-    const cx = this.pointer.on ? this.pointer.x : this.w / 2;
-    const cy = this.pointer.on ? this.pointer.y : this.h / 2;
-    for (const b of this.boids) {
-      let dx = wrapDelta(b.x - cx, this.w);
-      let dy = wrapDelta(b.y - cy, this.h);
-      const m = Math.hypot(dx, dy) || 1;
-      b.vx += (dx / m) * 280;
-      b.vy += (dy / m) * 280;
-    }
-  }
-
-  tick(dt) {
-    const p = this.params;
-    const maxSpeed = p.speed;
-    const minSpeed = maxSpeed * 0.35;
-    const vis = 56;
-    const sepR = 22;
-    const avoidR = 110;
-    this.hash.clear();
-    for (const b of this.boids) this.hash.insert(b);
-
-    if (this.pointer.panic > 0) this.pointer.panic = Math.max(0, this.pointer.panic - dt);
-
-    for (const b of this.boids) {
-      this.hash.query(b.x, b.y, vis, this.w, this.h, this.neighbors);
-      let sx = 0, sy = 0, ax = 0, ay = 0, cx = 0, cy = 0, n = 0, ns = 0;
-
-      for (const o of this.neighbors) {
-        if (o === b) continue;
-        const dx = wrapDelta(o.x - b.x, this.w);
-        const dy = wrapDelta(o.y - b.y, this.h);
-        const d2 = dx * dx + dy * dy;
-        if (d2 > vis * vis || d2 === 0) continue;
-        const d = Math.sqrt(d2);
-        const hx = b.vx;
-        const hy = b.vy;
-        if (hx * dx + hy * dy < -0.15 * Math.hypot(hx, hy) * d) continue;
-        n++;
-        ax += o.vx;
-        ay += o.vy;
-        cx += dx;
-        cy += dy;
-        if (d < sepR) {
-          const f = (sepR - d) / sepR;
-          sx -= (dx / d) * f;
-          sy -= (dy / d) * f;
-          ns++;
-        }
-      }
-
-      let fx = 0, fy = 0;
-      if (ns) {
-        fx += (sx / ns) * p.separation * 220;
-        fy += (sy / ns) * p.separation * 220;
-      }
-      if (n) {
-        ax /= n;
-        ay /= n;
-        const am = Math.hypot(ax, ay) || 1;
-        fx += (ax / am * maxSpeed - b.vx) * p.alignment * 2.2;
-        fy += (ay / am * maxSpeed - b.vy) * p.alignment * 2.2;
-        cx /= n;
-        cy /= n;
-        const cm = Math.hypot(cx, cy) || 1;
-        fx += (cx / cm) * p.cohesion * 40;
-        fy += (cy / cm) * p.cohesion * 40;
-      }
-
-      if (this.pointer.on || this.pointer.panic > 0) {
-        const dx = wrapDelta(b.x - this.pointer.x, this.w);
-        const dy = wrapDelta(b.y - this.pointer.y, this.h);
-        const d = Math.hypot(dx, dy) || 1;
-        const reach = avoidR * (1 + this.pointer.panic * 1.8);
-        if (d < reach) {
-          const f = ((reach - d) / reach) * p.avoid * 320 * (1 + this.pointer.panic * 2);
-          fx += (dx / d) * f;
-          fy += (dy / d) * f;
-        }
-      }
-
-      b.vx += fx * dt;
-      b.vy += fy * dt;
-      let spd = Math.hypot(b.vx, b.vy);
-      if (spd > maxSpeed) {
-        b.vx = (b.vx / spd) * maxSpeed;
-        b.vy = (b.vy / spd) * maxSpeed;
-      } else if (spd < minSpeed && spd > 0) {
-        b.vx = (b.vx / spd) * minSpeed;
-        b.vy = (b.vy / spd) * minSpeed;
-      }
-      b.x = (b.x + b.vx * dt + this.w) % this.w;
-      b.y = (b.y + b.vy * dt + this.h) % this.h;
-    }
-  }
-
-  draw() {
-    const { ctx, w, h } = this;
-    ctx.fillStyle = `rgba(7, 8, 12, ${1 - this.params.trail * 0.55})`;
-    ctx.fillRect(0, 0, w, h);
-
-    if (this.pointer.on || this.pointer.panic > 0) {
-      const r = 110 * (1 + this.pointer.panic * 1.8);
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!paused) sim.tick(dt);
+    ctx.fillStyle = `rgba(7, 8, 12, ${1 - params.trail * 0.55})`;
+    ctx.fillRect(0, 0, sim.w, sim.h);
+    if (sim.mode === "cursors" && (sim.pointer.on || sim.pointer.panic > 0)) {
       ctx.beginPath();
-      ctx.arc(this.pointer.x, this.pointer.y, r, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(159, 216, 208, ${0.12 + this.pointer.panic * 0.35})`;
-      ctx.lineWidth = 1;
+      ctx.arc(sim.pointer.x, sim.pointer.y, 110, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(159, 216, 208, .18)";
       ctx.stroke();
     }
-
-    for (const b of this.boids) {
-      const ang = Math.atan2(b.vy, b.vx);
-      const hue = ((ang * 180) / Math.PI + 360) % 360;
-      ctx.save();
-      ctx.translate(b.x, b.y);
-      ctx.rotate(ang);
-      ctx.beginPath();
-      ctx.moveTo(7.5, 0);
-      ctx.lineTo(-5.5, 3.4);
-      ctx.lineTo(-3.2, 0);
-      ctx.lineTo(-5.5, -3.4);
-      ctx.closePath();
-      ctx.fillStyle = `hsl(${170 + hue * 0.12}, 38%, ${62 + Math.min(18, Math.hypot(b.vx, b.vy) / 12)}%)`;
-      ctx.fill();
-      ctx.restore();
+    for (const a of sim.agents) {
+      if (a.kind === "koya") drawFish(ctx, a);
+      else if (a.kind === "rocket") drawRocket(ctx, a);
+      else drawCursor(ctx, a);
     }
+    drawSparks(ctx, sim.sparks);
+    requestAnimationFrame(frame);
   }
 
-  frame(now) {
-    const dt = Math.min(0.05, (now - this.last) / 1000);
-    this.last = now;
-    if (!this.paused) this.tick(dt);
-    this.draw();
-    requestAnimationFrame((t) => this.frame(t));
-  }
+  resize();
+  syncModeUi();
+  window.__murmur = sim;
+  requestAnimationFrame(frame);
+  return sim;
 }
 
 const canvas = document.getElementById("stage");
-const flock = new Flock(canvas);
-
-function bindSlider(id, key, map = (v) => Number(v)) {
-  const el = document.getElementById(id);
-  const out = document.getElementById(`${id}-val`);
-  el.value = flock.params[key];
-  out.textContent = key === "count" ? String(Math.round(flock.params[key])) : Number(flock.params[key]).toFixed(2);
-  el.addEventListener("input", () => {
-    const v = map(el.value);
-    flock.params[key] = v;
-    out.textContent = key === "count" ? String(Math.round(v)) : Number(v).toFixed(2);
-    if (key === "count") flock.setCount(v);
-    else saveParams(flock.params);
-  });
-}
-
-bindSlider("sep", "separation");
-bindSlider("ali", "alignment");
-bindSlider("coh", "cohesion");
-bindSlider("avo", "avoid");
-bindSlider("spd", "speed");
-bindSlider("pop", "count");
-
-document.getElementById("pause").addEventListener("click", () => {
-  flock.paused = !flock.paused;
-  document.getElementById("pause").textContent = flock.paused ? "Resume" : "Pause";
-});
-document.getElementById("reset").addEventListener("click", () => flock.respawn());
-document.getElementById("scatter").addEventListener("click", () => flock.scatter());
-
-window.addEventListener("resize", () => flock.resize());
-window.addEventListener("pointermove", (e) => {
-  flock.pointer.x = e.clientX;
-  flock.pointer.y = e.clientY;
-  flock.pointer.on = true;
-});
-window.addEventListener("pointerdown", (e) => {
-  flock.pointer.x = e.clientX;
-  flock.pointer.y = e.clientY;
-  flock.pointer.on = true;
-  flock.pointer.panic = 0.35;
-});
-window.addEventListener("pointerleave", () => {
-  flock.pointer.on = false;
-});
-window.addEventListener("keydown", (e) => {
-  if (e.code === "Space") {
-    e.preventDefault();
-    flock.paused = !flock.paused;
-    document.getElementById("pause").textContent = flock.paused ? "Resume" : "Pause";
-  }
-  if (e.key === "r" || e.key === "R") flock.respawn();
-  if (e.key === "s" || e.key === "S") flock.scatter();
-});
-
-requestAnimationFrame((t) => flock.frame(t));
+if (canvas) bootMurmur(canvas);
