@@ -1,0 +1,10 @@
+{
+  "name": "murmur",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Reynolds boids murmuration",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/flock-math.test.js"
+  }
+}

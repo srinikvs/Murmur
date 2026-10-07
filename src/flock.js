@@ -1,78 +1,29 @@
-const DEFAULTS = {
-  count: 180,
-  speed: 140,
-  separation: 1.35,
-  alignment: 1.0,
-  cohesion: 0.85,
-  avoid: 2.4,
-  trail: 0.18,
-};
+const {
+  mergeParams,
+  wrapDelta,
+  wrapPosition,
+  limitSpeed,
+  seesNeighbor,
+  decayPanic,
+  spawnBoids,
+  fitFlockSize,
+  SpatialHash,
+} = globalThis.MurmurMath;
 
 const KEY = "murmur.params";
 
 function loadParams() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { ...DEFAULTS };
-    return { ...DEFAULTS, ...JSON.parse(raw) };
+    if (!raw) return mergeParams(null);
+    return mergeParams(JSON.parse(raw));
   } catch {
-    return { ...DEFAULTS };
+    return mergeParams(null);
   }
 }
 
 function saveParams(p) {
   localStorage.setItem(KEY, JSON.stringify(p));
-}
-
-function rand(a, b) {
-  return a + Math.random() * (b - a);
-}
-
-function wrapDelta(d, size) {
-  if (d > size * 0.5) return d - size;
-  if (d < -size * 0.5) return d + size;
-  return d;
-}
-
-class SpatialHash {
-  constructor(cell) {
-    this.cell = cell;
-    this.map = new Map();
-  }
-  key(x, y) {
-    return `${x},${y}`;
-  }
-  clear() {
-    this.map.clear();
-  }
-  insert(boid) {
-    const cx = Math.floor(boid.x / this.cell);
-    const cy = Math.floor(boid.y / this.cell);
-    const k = this.key(cx, cy);
-    let bin = this.map.get(k);
-    if (!bin) {
-      bin = [];
-      this.map.set(k, bin);
-    }
-    bin.push(boid);
-  }
-  query(x, y, range, w, h, out) {
-    out.length = 0;
-    const c = this.cell;
-    const x0 = Math.floor((x - range) / c);
-    const x1 = Math.floor((x + range) / c);
-    const y0 = Math.floor((y - range) / c);
-    const y1 = Math.floor((y + range) / c);
-    const maxX = Math.ceil(w / c);
-    const maxY = Math.ceil(h / c);
-    for (let ix = x0; ix <= x1; ix++) {
-      for (let iy = y0; iy <= y1; iy++) {
-        const bin = this.map.get(this.key(((ix % maxX) + maxX) % maxX, ((iy % maxY) + maxY) % maxY));
-        if (bin) for (const b of bin) out.push(b);
-      }
-    }
-    return out;
-  }
 }
 
 class Flock {
@@ -102,32 +53,12 @@ class Flock {
   }
 
   respawn() {
-    const n = Math.max(20, Math.min(500, Math.round(this.params.count)));
-    this.boids = Array.from({ length: n }, () => {
-      const a = rand(0, Math.PI * 2);
-      const s = this.params.speed * rand(0.7, 1.1);
-      return {
-        x: rand(0, this.w),
-        y: rand(0, this.h),
-        vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s,
-      };
-    });
+    this.boids = spawnBoids(this.params.count, this.w, this.h, this.params.speed);
   }
 
   setCount(n) {
     this.params.count = n;
-    const target = Math.max(20, Math.min(500, Math.round(n)));
-    while (this.boids.length < target) {
-      const donor = this.boids[this.boids.length - 1] || { x: this.w / 2, y: this.h / 2, vx: 20, vy: 0 };
-      this.boids.push({
-        x: donor.x + rand(-12, 12),
-        y: donor.y + rand(-12, 12),
-        vx: donor.vx + rand(-8, 8),
-        vy: donor.vy + rand(-8, 8),
-      });
-    }
-    if (this.boids.length > target) this.boids.length = target;
+    this.boids = fitFlockSize(this.boids, n, this.w, this.h);
     saveParams(this.params);
   }
 
@@ -147,14 +78,13 @@ class Flock {
   tick(dt) {
     const p = this.params;
     const maxSpeed = p.speed;
-    const minSpeed = maxSpeed * 0.35;
     const vis = 56;
     const sepR = 22;
     const avoidR = 110;
     this.hash.clear();
     for (const b of this.boids) this.hash.insert(b);
 
-    if (this.pointer.panic > 0) this.pointer.panic = Math.max(0, this.pointer.panic - dt);
+    if (this.pointer.panic > 0) this.pointer.panic = decayPanic(this.pointer.panic, dt);
 
     for (const b of this.boids) {
       this.hash.query(b.x, b.y, vis, this.w, this.h, this.neighbors);
@@ -167,9 +97,7 @@ class Flock {
         const d2 = dx * dx + dy * dy;
         if (d2 > vis * vis || d2 === 0) continue;
         const d = Math.sqrt(d2);
-        const hx = b.vx;
-        const hy = b.vy;
-        if (hx * dx + hy * dy < -0.15 * Math.hypot(hx, hy) * d) continue;
+        if (!seesNeighbor(b.vx, b.vy, dx, dy, d)) continue;
         n++;
         ax += o.vx;
         ay += o.vy;
@@ -215,16 +143,12 @@ class Flock {
 
       b.vx += fx * dt;
       b.vy += fy * dt;
-      let spd = Math.hypot(b.vx, b.vy);
-      if (spd > maxSpeed) {
-        b.vx = (b.vx / spd) * maxSpeed;
-        b.vy = (b.vy / spd) * maxSpeed;
-      } else if (spd < minSpeed && spd > 0) {
-        b.vx = (b.vx / spd) * minSpeed;
-        b.vy = (b.vy / spd) * minSpeed;
-      }
-      b.x = (b.x + b.vx * dt + this.w) % this.w;
-      b.y = (b.y + b.vy * dt + this.h) % this.h;
+      const limited = limitSpeed(b.vx, b.vy, maxSpeed);
+      b.vx = limited.vx;
+      b.vy = limited.vy;
+      const wrapped = wrapPosition(b.x + b.vx * dt, b.y + b.vy * dt, this.w, this.h);
+      b.x = wrapped.x;
+      b.y = wrapped.y;
     }
   }
 
