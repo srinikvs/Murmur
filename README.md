@@ -2,7 +2,15 @@
 
 Reynolds boids murmuration: separation, alignment, cohesion, plus cursor scatter.
 
-Open `index.html` in a browser. No build step, no dependencies.
+Open `index.html` in a browser. No build step and no runtime dependencies.
+
+## Tests
+
+`npm test` runs Node's built-in test runner against the pure helpers in `src/flock-math.js` (spawn bounds, toroidal wrap, speed limits, neighbor hash). No browser required.
+
+```bash
+npm test
+```
 
 ## Controls
 
